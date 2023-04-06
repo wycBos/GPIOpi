@@ -1,0 +1,9 @@
+{
+    "C_Cpp.dimInactiveRegions": false,
+    "files.associations": {
+        "pigpio.h": "c",
+        "waveformnew.h": "c",
+        "atomic": "c",
+        "cstdint": "c"
+    }
+}
