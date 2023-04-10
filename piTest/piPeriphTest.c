@@ -24,6 +24,7 @@ sudo ./piPeriphx
 */
 
 #include <stdio.h>
+#include <ncurses.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -1748,7 +1749,7 @@ void tspi_ads131m04(char *command, uint16_t address, unsigned int value)
 uint16_t tspi_ads131m04_rd(int SPIhandler, regInfor *getInf);
 
 /* TODO - move to head file */
-#define SAMPRAT (1000000/400)
+#define SAMPRAT (1000000/210)
 #define ADCLNTH 32
 
 typedef struct ADCRsults_t{
@@ -1786,7 +1787,7 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
          pregInf->regAddr = 1;
          pregInf->numRegs = 0; //numRegs;
          reps = tspi_ads131m04_rd(h, pregInf);
-         
+         /*
          double step = 1200000.0 / 8388607.0;
          double v1, v2, v3, v4;
 
@@ -1829,7 +1830,7 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
          {
             v4 = (double)adcData.channel3;
          }
-         
+         */
          /* updata the adcCapFuncData */
          idx = (idx + 1)%ADCLNTH;
          padcCapFuncData->datIdx = idx;
@@ -1837,18 +1838,25 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
          (padcCapFuncData->pRslts + idx)->tick = tick;
 
 
-         v1 *= step;
-         v2 *= step;
-         v3 *= step;
-         v4 *= step;
-         (padcCapFuncData->pRslts + idx)->results0 = v1;
-         (padcCapFuncData->pRslts + idx)->results1 = v2;
-         (padcCapFuncData->pRslts + idx)->results2 = v3;
-         (padcCapFuncData->pRslts + idx)->results3 = v4;
+         //v1 *= step;
+         //v2 *= step;
+         //v3 *= step;
+         //v4 *= step;
          
-         printf("Data(%d, %u): 0x%x, %.02f, %.02f, %.2f, %.2f\n", gpio, tick-lpreTick, adcData.response, v1, v2, v3, v4);
+         //(padcCapFuncData->pRslts + idx)->results0 = v1;
+         //(padcCapFuncData->pRslts + idx)->results1 = v2;
+         //(padcCapFuncData->pRslts + idx)->results2 = v3;
+         //(padcCapFuncData->pRslts + idx)->results3 = v4;
+         
+         (padcCapFuncData->pRslts + idx)->results0 = (float)adcData.channel0;
+         (padcCapFuncData->pRslts + idx)->results1 = (float)adcData.channel1;
+         (padcCapFuncData->pRslts + idx)->results2 = (float)adcData.channel2;
+         (padcCapFuncData->pRslts + idx)->results3 = (float)adcData.channel3;
+         
+         //printf("Data(%d, %u): 0x%x, %.02f, %.02f, %.2f, %.2f\n", gpio, tick-lpreTick, adcData.response, v1, v2, v3, v4);
                
    }
+   
    return;
 }
 
@@ -2315,8 +2323,9 @@ int main(int argc, char *argv[])
 
          /* for python mtd415 tec-set */
          char *pargu1 = "mtd415Set";
-         char argu2[32] = "tecSet", argu3[32] = "The GPS parser calling test!";
-         //printf("    Input call name and argument: ");
+         //char argu2[32] = "tecSet", argu3[32] = "The GPS parser calling test!";
+         char argu2[32] = "tecCmd", argu3[32] = "get temperature";
+        //printf("    Input call name and argument: ");
          //scanf("%s %s", &argu2, &argu3);
 
          tempCtrll_py(3, pargu1, &argu2, &argu3);
@@ -2386,27 +2395,95 @@ int main(int argc, char *argv[])
       }
       else if (!strcmp("CaptureADCDbg", command))
       {
-         #if 0
+         #if 1
+         int count = 0;
+         /* initialize the ncurses lib */
+         initscr();
          /* use alert function */
+         pfuncData->datIdx = 0;
          pfuncData->isRun = 1;
          
-         //gpioSetAlertFuncEx(ADC_DRDY, adcCaptureFun, pfuncData);
-         printf(" ");
-         scanf("%s", command);
-             
-         pfuncData->isRun = 0;
+         gpioSetAlertFuncEx(ADC_DRDY, adcCaptureFun, pfuncData);
+
+         /* while loop for checking temp and adc each 100 ms */
+         uint32_t curTick, preTick;
+         uint32_t preDatTick = 0;
+         preTick = curTick = gpioTick(); 
+         while(/*!kbhit()*/pfuncData->isRun == 1 && count < 6)
+         {
+            //if((curTick - preTick) >= 100000)
+            if(pfuncData->datIdx > 28)
+            {
+               pfuncData->isRun = 0;
+               /* get temperature */              
+               char *pargu1 = "mtd415Set";
+               char argu2[32] = "tecCmd", argu3[32] = "get temperature";
+               
+               tempCtrll_py(3, pargu1, &argu2, &argu3);
+
+               /* print data */
+               //int dltTick, dataIdx = pfuncData->datIdx;
+               //dltTick = (pfuncData->pRslts + dataIdx)->tick - preDatTick;
+               //preDatTick = (pfuncData->pRslts + dataIdx)->tick;
             
+               //printf("%d %d\n\r", curTick - preTick, dltTick);
+               
+               //for(int n = 0; n < ADCLNTH; n++)
+               //{
+             
+                  //printf("Data(%d, %d, %u): %.2f, %.2f, %.2f, %.2f\n\r", n,
+                     //pfuncData->datIdx, 
+                     ////(pfuncData->pRslts + n)->tick,
+                     //(pfuncData->pRslts + n + 1)->tick - (pfuncData->pRslts + n)->tick,
+                     //(pfuncData->pRslts + n)->results0,
+                     //(pfuncData->pRslts + n)->results1,
+                     //(pfuncData->pRslts + n)->results2,
+                     //(pfuncData->pRslts + n)->results3);
+               //}
+               
+               pfuncData->datIdx = 0;
+               pfuncData->isRun = 1;
+               curTick = preTick = gpioTick();
+               count++;
+            }else{
+               curTick = gpioTick();
+               gpioDelay(1000);
+            }
+            //if(kbhit())
+            //{
+            //   pfuncData->isRun = 0;
+            //   break;
+            //}
+         }
+         /* step1 - get current tick1 */
+
+         /* step2 - call tempCpt routine */
+
+         /* step3 - get current tick2 */
+
+         /* if tick2 - tick1 >= 100 ms */
+         // calculate adc output
+         // print data
+         // back to step1, do again
+         /* if tick2 - tick1 < 100 ms */
+         // back to step2
+
+         /* any keyboard press ends the loop */
+         //printf(" ");
+         //scanf("%s", command);
+  
+         pfuncData->isRun = 0;
+         
+         endwin(); //end ncurses
+
          /* check the capture data */
-         printf("\n ");
+         printf("\n");
+         int dataIdx = pfuncData->datIdx;
          for(int n = 0; n < ADCLNTH; n++)
          {
-            //(padcCapFuncData->pRslts + idx)->results0 = v1;
-            //(padcCapFuncData->pRslts + idx)->results1 = v2;
-            //(padcCapFuncData->pRslts + idx)->results2 = v3;
-            //(padcCapFuncData->pRslts + idx)->results3 = v4;
-         
-            printf("Data(%d, %u): %.2f, %.2f, %.2f, %.2f\n", n, 
-               (pfuncData->pRslts + n)->tick,
+            printf("Data1(%d, %d, %u): %.2f, %.2f, %.2f, %.2f\n", n,
+               pfuncData->datIdx, 
+               (pfuncData->pRslts + n + 1)->tick - (pfuncData->pRslts + n)->tick,
                (pfuncData->pRslts + n)->results0,
                (pfuncData->pRslts + n)->results1,
                (pfuncData->pRslts + n)->results2,
@@ -2416,7 +2493,7 @@ int main(int argc, char *argv[])
          /* end of using alert function */
          #endif
       
-         #if 1 //read data number of data
+         #if 0 //read data number of data
          printf("    Input No. to capture: ");
          scanf("%d", &setData);
 

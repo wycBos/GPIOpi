@@ -1406,7 +1406,7 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 	setenv("PYTHONPATH", "/home/pi/mtd415py:/home/pi/mtd415lib/thorlabs-mtd415t:/home/pi/mtd415lib/thorlabs-mtd415t/thorlabs_mtd415t", 1);
 	//printf("PATH: %s\n", getenv("PATH"));
 	//printf("PYTHONPATH: %s\n", getenv("PYTHONPATH"));
-	printf("in the ctrl_py(%d):\n   %s\n   %s\n   %s\n", argc, argv1, argv2, argv3);
+	printf("in the ctrl_py(%d):\n\r   %s\n\r   %s\n\r   %s\n\r", argc, argv1, argv2, argv3);
 	//return;
 
 	wchar_t *program = Py_DecodeLocale(argv1, NULL);
@@ -1455,8 +1455,10 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 
 	if (PyCallable_Check(pFunc))
 	{
-		//pmyresult = PyObject_CallObject(pFunc, args/*NULL*/);
-		pmyresult = PyObject_CallObject(pFunc, NULL);
+		if(argv3 != "null")
+			pmyresult = PyObject_CallObject(pFunc, args/*NULL*/);
+		else
+			pmyresult = PyObject_CallObject(pFunc, NULL);
 		i = 0;
 	}
 	else
@@ -1495,7 +1497,7 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 		}
 	}
 	else{
-		printf("no string return\n");
+		printf("no string return\n\r");
 	}
 
 	// Clean up

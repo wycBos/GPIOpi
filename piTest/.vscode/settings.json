@@ -4,6 +4,8 @@
         "pigpio.h": "c",
         "waveformnew.h": "c",
         "atomic": "c",
-        "cstdint": "c"
+        "cstdint": "c",
+        "stdio.h": "c",
+        "ncurses.h": "c"
     }
 }
