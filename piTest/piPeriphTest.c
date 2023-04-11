@@ -32,6 +32,7 @@ sudo ./piPeriphx
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 
 #include "pigpio.h"
 #include "waveFormNew.h"
@@ -2469,7 +2470,7 @@ int main(int argc, char *argv[])
          while(/*!kbhit()*/pfuncData->isRun == 1 && count < 10)
          {
             //if((curTick - preTick) >= 100000)
-            if(pfuncData->datIdx > 28)
+            if(pfuncData->datIdx > 23)
             {
                pfuncData->isRun = 0;
                /* get temperature */              
@@ -2480,33 +2481,102 @@ int main(int argc, char *argv[])
                presult = tempCtrll_py(3, pargu1, &argu2, &argu3);
                printf("\r     set temperature is %s.\r\n", presult);
 
-               /* print data */
-               //int dltTick, dataIdx = pfuncData->datIdx;
-               //dltTick = (pfuncData->pRslts + dataIdx)->tick - preDatTick;
-               //preDatTick = (pfuncData->pRslts + dataIdx)->tick;
+               /* calculate data */
+               int32_t fx1 = 0,fy1 = 0, fx2 = 0, fy2 = 0, maxDtick = 0, curTick;
+               double df1, df2, v1, v2, v3, v4, step;
+               
+               for(int n = 2; n < 22; n++)
+               {
+                  fx1 += (pfuncData->pRslts + n)->results0;
+                  fy1 += (pfuncData->pRslts + n)->results1;
+                  fx2 += (pfuncData->pRslts + n)->results2;
+                  fy2 += (pfuncData->pRslts + n)->results3;
+                  if(n > 3)
+                     curTick = (pfuncData->pRslts + n)->tick - (pfuncData->pRslts + (n - 1))->tick;
+                  maxDtick = (maxDtick > curTick) ? maxDtick:curTick;
+               }
+
+               fx1 /= 20; fy1 /= 20; fx2 /= 20; fy2 /= 20;
+               
+               /* convert to voltage */
+               //int count = 0, countf = 0;
+               
+               uint32_t ticksSum = 0;
+
+               if(fx1 > 0x7fffff) //adcData.channel0
+               {
+                  v1 = (double)(~(fx1 | 0xff000000)+1);
+                  v1 = -v1;
+               }
+               else
+               {
+                  v1 = (double)fx1;
+               }
+
+               if(fy1 > 0x7fffff) //adcData.channel1
+               {
+                  v2 = (double)(~(fy1 | 0xff000000)+1);
+                  v2 = -v2;
+               }
+               else
+               {
+                  v2 = (double)fy1;
+               }
+               
+               if(fx2 > 0x7fffff) //adcData.channel2
+               {
+                  v3 = (double)(~(fx2 | 0xff000000)+1);
+                  v3 = -v3;
+               }
+               else
+               {
+                  v3 = (double)fx2;
+               }
+               
+               if(fy2 > 0x7fffff) //adcData.channel3
+               {
+                  v4 = (double)(~(fy2 | 0xff000000)+1);
+                  v4 = -v4;
+               }
+               else
+               {
+                  v4 = (double)fy2;
+               }
+               
+               step = 1200000.0 / 8388607.0;
+
+               v1 *= step;
+               v2 *= step;
+               v3 *= step;
+               v4 *= step;
+               
+               df1 = v1*v1 + v2*v2;
+               df2 = v3*v3 + v4*v4;
+
+               df1 = sqrt(df1);
+               df2 = sqrt(df2);
+
+               curTick = gpioTick();
+               
+               printf("    lasting %d max-dalt %d; result %.4f, %.4f \n\r", (curTick - preTick), maxDtick, df1, df2);
+ 
+               printf("    (%d): %u, 0x%x, %.02f, %.02f, %.2f, %.2f\n\r", count, adcData.response, v1, v2, v3, v4);
             
-               //printf("%d %d\n\r", curTick - preTick, dltTick);
-               
-               //for(int n = 0; n < ADCLNTH; n++)
-               //{
-             
-                  //printf("Data(%d, %d, %u): %.2f, %.2f, %.2f, %.2f\n\r", n,
-                     //pfuncData->datIdx, 
-                     ////(pfuncData->pRslts + n)->tick,
-                     //(pfuncData->pRslts + n + 1)->tick - (pfuncData->pRslts + n)->tick,
-                     //(pfuncData->pRslts + n)->results0,
-                     //(pfuncData->pRslts + n)->results1,
-                     //(pfuncData->pRslts + n)->results2,
-                     //(pfuncData->pRslts + n)->results3);
-               //}
-               
+               /* renew the data buffer */
                pfuncData->datIdx = 0;
                pfuncData->isRun = 1;
                curTick = preTick = gpioTick();
                count++;
-            }else{
-               curTick = gpioTick();
-               gpioDelay(1000);
+               //}
+
+               /* end of convert */
+               
+               /* output data */
+               printf("\n\r    %d - %d -- %d\n\r", (pfuncData->pRslts + 2)->tick,
+               (pfuncData->pRslts + 21)->tick,
+               (pfuncData->pRslts + 21)->tick - (pfuncData->pRslts + 2)->tick);
+
+               //curTick = gpioTick();
             }
             //if(kbhit())
             //{
@@ -2514,18 +2584,6 @@ int main(int argc, char *argv[])
             //   break;
             //}
          }
-         /* step1 - get current tick1 */
-
-         /* step2 - call tempCpt routine */
-
-         /* step3 - get current tick2 */
-
-         /* if tick2 - tick1 >= 100 ms */
-         // calculate adc output
-         // print data
-         // back to step1, do again
-         /* if tick2 - tick1 < 100 ms */
-         // back to step2
 
          /* any keyboard press ends the loop */
          //printf(" ");
@@ -2548,7 +2606,10 @@ int main(int argc, char *argv[])
                (pfuncData->pRslts + n)->results2,
                (pfuncData->pRslts + n)->results3);
          }
-         printf("\n");
+         printf("    %d - %d -- %d\n", (pfuncData->pRslts + 2)->tick,
+               (pfuncData->pRslts + 21)->tick,
+               (pfuncData->pRslts + 21)->tick - (pfuncData->pRslts + 2)->tick);
+
          /* end of using alert function */
          #endif
       
@@ -2559,71 +2620,7 @@ int main(int argc, char *argv[])
          pregInf->regAddr = 1;
          pregInf->numRegs = 0; //numRegs;%[^\n]%*c
          reps = tspi_ads131m04_rd(h, pregInf);
-         
-         int count = 0, countf = 0;
-         double step = 1200000.0 / 8388607.0;
-         double v1, v2, v3, v4;
-         uint32_t ticksSum = 0;
 
-         while((count < setData) && (countf < (200 + setData)))
-         {
-            if(0x50f == adcData.response)
-            {
-
-               if(adcData.channel0 > 0x7fffff)
-               {
-                  v1 = (double)(~(adcData.channel0 | 0xff000000)+1);
-                  v1 = -v1;
-               }
-               else%[^\n]%*c
-               {
-                  v1 = (double)adcData.channel0;
-               }
-
-               if(adcData.channel1 > 0x7fffff)
-               {
-                  v2 = (double)(~(adcData.channel1 | 0xff000000)+1);
-                  v2 = -v2;
-               }
-               else
-               {
-                  v2 = (double)adcData.channel1;
-               }
-               
-               if(adcData.channel2 > 0x7fffff)
-               {
-                  v3 = (double)(~(adcData.channel2 | 0xff000000)+1);
-                  v3 = -v3;%[^\n]%*c
-               }
-               else
-               {
-                  v3 = (double)adcData.channel2;
-               }
-               
-               if(adcData.channel3 > 0x7fffff)
-               {
-                  v4 = (double)(~(adcData.channel3 | 0xff000000)+1);
-                  v4 = -v4;
-               }
-               else
-               {
-                  v4 = (double)adcData.channel3;
-               }
-               %[^\n]%*c
-               v1 *= step;
-               v2 *= step;
-               v3 *= step;
-               v4 *= step;
-               
-               printf("Data(%d): %u, 0x%x, %.02f, %.02f, %.2f, %.2f\n", count, ticksSum, adcData.response, v1, v2, v3, v4);
-               count++;
-               ticksSum = 0;
-            }
-
-            ticksSum += gpioDelay(5000); //1000000/200Hz
-            reps = tspi_ads131m04_rd(h, pregInf);
-            countf++;%[^\n]%*c
-         }
          //printf("Tx0:  0x%x, 0x%x, 0x%x, 0x%x 0x%x, 0x%x, 0x%x, 0x%x 0x%x \n", txBuf[0], txBuf[1], txBuf[2], txBuf[3], txBuf[4], txBuf[5], txBuf[6], txBuf[7], txBuf[8]);
          //printf("Tx1:  0x%x, 0x%x, 0x%x, 0x%x 0x%x, 0x%x, 0x%x, 0x%x 0x%x \n", txBuf[9], txBuf[10], txBuf[11], txBuf[12], txBuf[13], txBuf[14], txBuf[15], txBuf[16], txBuf[17]);
 
@@ -2642,7 +2639,7 @@ int main(int argc, char *argv[])
          //printf("Data: 0x%x, %f, %f, %f, %f\n", adcData.response, v1, v2, v3, v4);
          #endif
 
-         printf("Input Command: ");
+         printf("\nInput Command: ");
          scanf("%s", command);
       }
       else if (!strcmp("CaptureADCClose", command))
