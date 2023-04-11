@@ -802,7 +802,7 @@ int twave_gen(int SPIHandle)
 */
 #endif
    //ADvolt = ADS1X15_read_voltage(adc);
-   printf("wave form start\n");
+   printf("    wave form start\n");
 //   ADS1X15_close(adc);
    while (0)
    {
@@ -826,7 +826,7 @@ int twave_cls(int wid)
    ern = gpioWaveTxStop();
    ern = gpioWaveDelete(wid);
 
-   printf("waveform close.\n");
+   printf("    waveform close.\n");
 //   gpioTerminate();
    
    return ern;
