@@ -1006,7 +1006,7 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
     *******************************************************************
     *
     */
-   unsigned int valuSet, ctrlData, setValue;
+   unsigned int numSteps, remainVal, valuSet, ctrlData, setValue;
    char byte0, byte1;
 
    /* set MCP4822 value */
@@ -1014,6 +1014,8 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
       valu = 1.0;
 
    valuSet = (unsigned int)(valu / 2.048 * 4096);
+   /* setting DAC_A value from 0 to set value with increacing 10 digital number per 20ms */
+   numSteps = valuSet/10; remainVal = valuSet%10;
 
    /* set MCP4822 control bits */
    ctrlData = MCP4822_GA1;
@@ -1027,8 +1029,39 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
    else if (command == 1 || command == 2)
       ctrlData |= MCP4822_ACT; // set DA activite
 
+   /* set DAC value */
+   if(channel == 0) //DAC_A
+   {
+      printf("    MCP4822 CH_A steps. %d\n", numSteps);
+      for(int n = 0; n < numSteps; n++)
+      {
+         setValue = ctrlData + n*10;
+         //printf("    MCP4822 Data. %d\n", setValue);
+
+         byte0 = setValue & 0xFF;
+         byte1 = (setValue >> 8) & 0xFF;
+
+         txBuf[1] = byte0;
+         txBuf[0] = byte1;
+         // sprintf(txBuf, "\x01\x80");
+         //printf("MCP4822 Data. %x %x %x\n", setValue, txBuf[1], txBuf[0]);
+
+         /* write data to SPI */
+         b = spiWrite(h, txBuf, 2);
+         //CHECK(12, 2, b, 2, 0, "spiWrie");
+
+         /* latch data to DAC */
+         gpioWrite(DAC_LDAC, 0);
+         gpioDelay(400);
+         gpioWrite(DAC_LDAC, 1);
+         gpioDelay(20000); // delay 20ms
+      }
+   }
+//   else{ //DAC_B
+//
+//   }
    setValue = ctrlData + valuSet;
-   //printf("MCP4822 Data. 0x%x\n", setValue);
+   printf("    MCP4822 Data. 0x%x\n", setValue);
 
    byte0 = setValue & 0xFF;
    byte1 = (setValue >> 8) & 0xFF;
@@ -1849,10 +1882,35 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
          //(padcCapFuncData->pRslts + idx)->results2 = v3;
          //(padcCapFuncData->pRslts + idx)->results3 = v4;
          
-         (padcCapFuncData->pRslts + idx)->results0 = (float)adcData.channel0;
-         (padcCapFuncData->pRslts + idx)->results1 = (float)adcData.channel1;
-         (padcCapFuncData->pRslts + idx)->results2 = (float)adcData.channel2;
-         (padcCapFuncData->pRslts + idx)->results3 = (float)adcData.channel3;
+         //TODO - convert to int type
+         int dataIn = adcData.channel0;
+         if(dataIn > 0x7fffff)
+         {
+            dataIn = (adcData.channel0 | 0xff000000);
+         }
+         (padcCapFuncData->pRslts + idx)->results0 = (float)dataIn;
+         
+         dataIn = adcData.channel1;
+         if(dataIn > 0x7fffff)
+         {
+            dataIn = (adcData.channel1 | 0xff000000);
+         }
+         (padcCapFuncData->pRslts + idx)->results1 = (float)dataIn;
+         
+         dataIn = adcData.channel2;
+         if(dataIn > 0x7fffff)
+         {
+            dataIn = (adcData.channel2 | 0xff000000);
+         }
+         (padcCapFuncData->pRslts + idx)->results2 = (float)dataIn;
+         
+         dataIn = adcData.channel3;
+         if(dataIn > 0x7fffff)
+         {
+            dataIn = (adcData.channel3 | 0xff000000);
+         }
+         (padcCapFuncData->pRslts + idx)->results3 = (float)dataIn;
+
          
          //printf("Data(%d, %u): 0x%x, %.02f, %.02f, %.2f, %.2f\n", gpio, tick-lpreTick, adcData.response, v1, v2, v3, v4);
                
@@ -2162,11 +2220,22 @@ int main(int argc, char *argv[])
 }
 #else  // new main()
 
+/* define the tec and laser pins */
+#define TEC_CTRL_EN 23
+#define LASER_DETECT_EN 25
+
+char *mtd415 = "mtd415Set";
+char *mtd415setFunc = "tecCmdset";
+char *mtd415getFunc = "tecCmdget";
+
 int main(int argc, char *argv[])
 {
    int h, i, t, c, status;
    double value = 0;
    int channel; // command;
+
+   float tecRet = 0;
+   char *presult;
 
    //uint16_t reps;
    char command[16]; //*piPeriID=argv[1];
@@ -2182,6 +2251,58 @@ int main(int argc, char *argv[])
       return 1;
    }
    printf("Hand-Helder Manufactory Calibration\n");
+
+   /* disable the Laser and Tec */
+   gpioWrite(TEC_CTRL_EN, 0);
+   gpioWrite(LASER_DETECT_EN, 0);
+
+   /* Set DAC_A to lowest value, such as 0.001mA */
+   tspi_mcp4822(0, 2, 0.001);
+   gpioDelay(400);
+
+   /* enable the Tec-contrller */
+   gpioWrite(TEC_CTRL_EN, 1);
+
+   /* Ask Tec TempPoint set */
+   char argu3[32] = "get temp point";
+   //char *presult;
+         //char argu2[32] = "tecSetPoint", argu3[32] = "null";
+         //printf("    Input call name and argument: ");
+         //scanf("%s %s", &argu2, &argu3);
+   //printf("input func-name %s, %s\n\r", mtd415Func, argu3);
+   presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+   tecRet = atof(presult);
+   //printf("     Temperature point is %s.\n\n", presult);
+   
+   printf("\n    Do you want set Temperature Point? (yes or no): ");
+   scanf("%s", command);
+   if(!strcmp("yes", command))
+   {
+      char argu3[32] = "set temp point";
+      presult = tempCtrll_py(3, mtd415, mtd415setFunc, &argu3);
+      tecRet = atof(presult);
+      printf("     Temperature point is %s.\n\n", presult);
+
+   }else{
+      printf("     Temperture poin: %.4f. No re-set.\n\n", tecRet);
+   }
+
+   /* turn on the laser when current temperature is reached to Temp-Point */
+   
+   int count = 0; float tempRet = 0;
+   while(fabs(tecRet - tempRet) > 0.01 && count < 30)
+   {
+      char argu3[32] = "get temperature";
+      presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+      tempRet = atof(presult);
+      //printf("     Temperature point is %s.\n\n", presult);
+      printf("     delta Temp is %.4f, %.4f, %.4f.\n\n", tecRet, tempRet, fabs(tecRet - tempRet));
+      gpioDelay(100);
+      count++;
+   }
+
+   /* turn on the laser detector */
+   gpioWrite(LASER_DETECT_EN, 1);
 
    h = tspi_ads131m04_start(pregInf, padcData); // open the pigpio spi
    //printf("set GPIO = %d.\n", GPIO);
@@ -2223,12 +2344,14 @@ int main(int argc, char *argv[])
          //printf("    Input Address and No. Regs: ");
          //scanf("%d %d", &addr, &numRegs);
          printf("    Input Address: ");
-         scanf("%x", &addr);
+         scanf("%d", &addr);
          // execute code;
-         pregInf->regAddr = addr;
-         pregInf->numRegs = 0; //numRegs;
-         reps = tspi_ads131m04_rd(h, pregInf);
-         printf("     reps: 0x%x \n    Input Command: ", reps);
+         // test mine int data to comment the following statment TODO --
+         //pregInf->regAddr = addr;
+         //pregInf->numRegs = 0; //numRegs;
+         //reps = tspi_ads131m04_rd(h, pregInf);
+         reps = addr + 0x80000000;
+         printf("     input: %d 0x%x %.2f; reps: %d 0x%x %.2f\n    Input Command: ", addr, addr, (float)addr, reps, reps, (float)reps);
          scanf("%s", command);
       }
       else if (!strcmp("WriteClose", command))
@@ -2313,8 +2436,18 @@ int main(int argc, char *argv[])
          float value = 0;
          printf("    Input ChanID (0 or 1): ");
          scanf("%d", &addr);
-         printf("    Input Value (0 to 2.04): ");
-         scanf("%f", &value);
+         if(addr == 0)
+         {
+            printf("    Input Value (0 to 2.04 V): ");
+            scanf("%f", &value);            
+         }
+         else if(addr == 1){
+            printf("    Input Value (0 to 600 mV): ");            
+            scanf("%f", &value);
+            value /=1000;
+         }else{
+            printf("    ChanID is not correct!\n");
+         }
          // execute code;
          tspi_mcp4822(addr, 2, value);
          printf("\nInput Command: ");
@@ -2334,13 +2467,13 @@ int main(int argc, char *argv[])
          //UART_tempCMain(TEMPCTRL);
 
          /* for python GPS peaser test */
-         char *pargu1 = "nmeaParser";
-         char argu2[32] = "parsMsg", argu3[32] = "The GPS parser calling test!";
+         char *parguGps1 = "nmeaParser";
+         char arguGps2[32] = "parsMsg", arguGps3[32] = "The GPS parser calling test!";
          printf("    Input call name and argument: ");
-         scanf("%s %s", &argu2, &argu3);
+         scanf("%s %s", &arguGps2, &arguGps3);
 
 
-         tempCtrll_py(3, pargu1, &argu2, &argu3);
+         tempCtrll_py(3, parguGps1, &arguGps2, &arguGps3);
          printf("Input Command: ");
          scanf("%s", command);
       }
@@ -2350,14 +2483,15 @@ int main(int argc, char *argv[])
          //UART_tempCMain(TEMPCTRL);
 
          /* for python mtd415 tec-set */
-         char *pargu1 = "mtd415Set";
-         char argu2[32] = "tecCmd", argu3[32] = "set temp point";
-         char *presult;
+         //char *pargu1 = "mtd415Set";
+         //char argu2[32] = "tecCmd"; 
+         char argu3[32] = "set temp point";
+         //char *presult;
          //char argu2[32] = "tecSetPoint", argu3[32] = "null";
          //printf("    Input call name and argument: ");
          //scanf("%s %s", &argu2, &argu3);
 
-         presult = tempCtrll_py(3, pargu1, &argu2, &argu3);
+         presult = tempCtrll_py(3, mtd415, mtd415setFunc, &argu3);
          printf("     set point is %s.\n\n", presult);
 
          printf("Input Command: ");
@@ -2369,9 +2503,10 @@ int main(int argc, char *argv[])
          //UART_tempCMain(TEMPCTRL);
 
          /* for python mtd415 tec-set */
-         char *pargu1 = "mtd415Set";
+         //char *pargu1 = "mtd415Set";
          //char argu2[32] = "tecSet", argu3[32] = "The GPS parser calling test!";
-         char argu2[32] = "tecCmd", argu3[32] = "get temperature";
+         //char argu2[32] = "tecCmd";
+         char argu3[32] = "get temperature";
          //printf("    Input call name: ");
          //scanf("%s %s", &argu3);
 
@@ -2382,10 +2517,38 @@ int main(int argc, char *argv[])
          //else{
          //   argu3[32] = "set temp point";
          //}
-         char *presult;
+         //char *presult;
 
-         presult = tempCtrll_py(3, pargu1, &argu2, &argu3);
+         presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
          printf("     get temperature is %s.\n\n", presult);
+         
+         printf("Input Command: ");
+         scanf("%s", command);
+      }
+      else if (!strcmp("getTempPt", command))
+      {
+         /* start Laser Distance main */
+         //UART_tempCMain(TEMPCTRL);
+
+         /* for python mtd415 tec-set */
+         //char *pargu1 = "mtd415Set";
+         //char argu2[32] = "tecSet", argu3[32] = "The GPS parser calling test!";
+         //char argu2[32] = "tecCmd";
+         char argu3[32] = "get temp point";
+         //printf("    Input call name: ");
+         //scanf("%s %s", &argu3);
+
+         //if(!strcmp("get", argu3))
+         //{
+         //   argu3[32] = "get temp point";
+         //}
+         //else{
+         //   argu3[32] = "set temp point";
+         //}
+         //char *presult;
+
+         presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+         printf("     get temp point is %s.\n\n", presult);
          
          printf("Input Command: ");
          scanf("%s", command);
@@ -2474,11 +2637,12 @@ int main(int argc, char *argv[])
             {
                pfuncData->isRun = 0;
                /* get temperature */              
-               char *pargu1 = "mtd415Set";
-               char argu2[32] = "tecCmd", argu3[32] = "get temperature";
-               char *presult;
+               //char *pargu1 = "mtd415Set";
+               //char argu2[32] = "tecCmd"; 
+               char argu3[32] = "get temperature";
+               //char *presult;
             
-               presult = tempCtrll_py(3, pargu1, &argu2, &argu3);
+               presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
                printf("\r     set temperature is %s.\r\n", presult);
 
                /* calculate data */
@@ -2558,9 +2722,9 @@ int main(int argc, char *argv[])
 
                curTick = gpioTick();
                
-               printf("    lasting %d max-dalt %d; result %.4f, %.4f \n\r", (curTick - preTick), maxDtick, df1, df2);
+               printf("    lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df2/df1);
  
-               printf("    (%d): %u, 0x%x, %.02f, %.02f, %.2f, %.2f\n\r", count, adcData.response, v1, v2, v3, v4);
+               printf("    (%d): %u, %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
             
                /* renew the data buffer */
                pfuncData->datIdx = 0;
@@ -2572,7 +2736,7 @@ int main(int argc, char *argv[])
                /* end of convert */
                
                /* output data */
-               printf("\n\r    %d - %d -- %d\n\r", (pfuncData->pRslts + 2)->tick,
+               printf("\r    %d - %d -- %d\n\r", (pfuncData->pRslts + 2)->tick,
                (pfuncData->pRslts + 21)->tick,
                (pfuncData->pRslts + 21)->tick - (pfuncData->pRslts + 2)->tick);
 
@@ -2595,6 +2759,7 @@ int main(int argc, char *argv[])
 
          /* check the capture data */
          printf("\n");
+   #if 0 //debug print
          int dataIdx = pfuncData->datIdx;
          for(int n = 0; n < ADCLNTH; n++)
          {
@@ -2611,6 +2776,7 @@ int main(int argc, char *argv[])
                (pfuncData->pRslts + 21)->tick - (pfuncData->pRslts + 2)->tick);
 
          /* end of using alert function */
+   #endif //end of debug print
          #endif
       
          #if 0 //read data number of data

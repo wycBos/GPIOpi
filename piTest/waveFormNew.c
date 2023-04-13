@@ -12,7 +12,7 @@
 
 static const unsigned int CFG_SAMRATE = 2;
 int gpios[]={5,4,6,12,13}; //5-100kHz; 4-1KHz; 6-1KHz90degree; 12-2KHz; 13-2KHz90degree - original
-#if 0 // original settings
+#if 1 // original settings
 gpioPulse_t pulses[]=  // original
 {
    /*
@@ -475,7 +475,7 @@ gpioPulse_t pulses[]= //4 <=> 6
 };
 #endif
 
-#if 1 // switch 6 <=> 13
+#if 0 // switch 6 <=> 13
 gpioPulse_t pulses[]= //6 <=> 13
 {
    {0x1030, 0x0000, 5}, //1

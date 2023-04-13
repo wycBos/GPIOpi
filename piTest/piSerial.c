@@ -1514,7 +1514,7 @@ const char *tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 	// Finish the Python Interpreter
 	Py_Finalize();
 
-	gpioWrite(SER_SEL, SLE_LDIS); // set low (borrow SLE_LDIS)
+	//gpioWrite(SER_SEL, SLE_LDIS); // set low (borrow SLE_LDIS)
 
 	return presultStr;
 }
