@@ -2679,7 +2679,7 @@ int main(int argc, char *argv[])
                /* convert to voltage */
                //int count = 0, countf = 0;
                 
-               #if 0  //TODO - rm following code 
+               #if 1  //TODO - rm following code 
                uint32_t ticksSum = 0;
 
                if(fx1 > 0x7fffff) //adcData.channel0
