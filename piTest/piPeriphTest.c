@@ -2241,6 +2241,45 @@ char *mtd415 = "mtd415Set";
 char *mtd415setFunc = "tecCmdset";
 char *mtd415getFunc = "tecCmdget";
 
+/**************************************************
+ * file data: write/read data from a file.
+ *   data including:
+ *      - date: Sec:Minu:Hour:Mon:Day:Year
+ *      - V1,V2,Ratio,Constant
+ *      - GPS Data
+ * ************************************************
+*/
+char inputData[64];
+char outputData[64];
+
+void	getDate(char *date)
+{
+   char buff1[100];
+   time_t curTime;
+   struct tm curDate = *localtime(&curTime);
+ 
+	sprintf(date,"%d/%02d/%02d, %02d:%02d:%02d",
+      curDate.tm_mon + 1, curDate.tm_mday, curDate.tm_year + 1900, 
+      curDate.tm_hour, curDate.tm_min, curDate.tm_sec);
+
+   return;
+}
+
+/*
+void	readDate(char *date)
+{
+   char buff1[100];
+   time_t curTime;
+   struct tm curDate = *localtime(&curTime);
+ 
+	sprintf(date,"%d/%02d/%02d, %02d:%02d:%02d\n",
+      curDate.tm_mon + 1, curDate.tm_mday, curDate.tm_year + 1900, 
+      curDate.tm_hour, curDate.tm_min, curDate.tm_sec);
+
+   return;
+}
+*/
+
 int main(int argc, char *argv[])
 {
    int h, i, t, c, status;
@@ -2256,6 +2295,41 @@ int main(int argc, char *argv[])
    adc_channel_data *padcData = &adcData;
    regInfor *pregInf = &regSetInf;
    manuCst cnstRlts;
+
+   // file
+   FILE *fh;
+
+   fh = fopen("./mCalib.txt", "ab"); //open/create a file. read or add data to file.
+
+#if 0   /* for test file handler */
+   char date[32];
+   
+   getDate(&date);
+   printf(date);
+   fprintf(fh, "%s\n", date);
+   
+   int ab;
+   while(1){
+      printf("\nend?");
+      scanf("%s", command);
+      printf("%s\n", command);
+      
+      if(!strcmp("Yes", command))
+      {
+         break;
+      }  
+      fprintf(fh, "%s\n", date);
+   }
+
+
+
+   ab = fclose(fh);
+
+   printf("end code\n");
+ 
+   return 0;
+
+#endif   /* end of the test */
 
    status = gpioInitialise();
 
@@ -2643,10 +2717,13 @@ int main(int argc, char *argv[])
          /* while loop for checking temp and adc each 100 ms */
          uint32_t curTick, preTick;
          uint32_t preDatTick = 0;
+         int ratioIdx = 0, capIdx = 0;
+         float ratioArray[20];
          preTick = curTick = gpioTick(); 
-         while(/*!kbhit()*/pfuncData->isRun == 1 && count < 30)
+         while(/*!kbhit()*/pfuncData->isRun == 1 && count < 24)
          {
             //if((curTick - preTick) >= 100000)
+            //cnstRlts.dataCnt;
             if(pfuncData->datIdx > 23)
             {
                pfuncData->isRun = 0;
@@ -2737,24 +2814,26 @@ int main(int argc, char *argv[])
                df2 = sqrt(df2);
 
                curTick = gpioTick();
-               int n = cnstRlts.dataCnt;
-               n = (n+1)%22;
-               cnstRlts.dataCnt = n;
+
+               capIdx = cnstRlts.dataCnt = count;
+               
+               capIdx = capIdx%20;
+               cnstRlts.dataCnt = capIdx;
                if(df2 != 0.0)
                {
-                  n = (n+1)%20;
-                  cnstRlts.dataCnt = n;
+                  //n = (n+1)%20;
+                  //cnstRlts.dataCnt = n;
 
-                  cnstRlts.Rslt[n].squF1 = df1;
-                  cnstRlts.Rslt[n].squF2 = df2;
-                  cnstRlts.Rslt[n].ratio = df1/df2;
-                  printf("    lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df2/df1);
+                  cnstRlts.Rslt[capIdx].squF1 = df1;
+                  cnstRlts.Rslt[capIdx].squF2 = df2;
+                  ratioArray[capIdx] = cnstRlts.Rslt[capIdx].ratio = df1/df2;
+                  printf("     lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df1/df2);
                }
                else
                {
                   printf("    dF2 is zero. %.4f, %.4f", df1, df2);
                }
-               printf("    (%d): %u, %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
+               printf("    (%d): %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
             
                /* renew the data buffer */
                pfuncData->datIdx = 0;
@@ -2788,18 +2867,35 @@ int main(int argc, char *argv[])
          endwin(); //end ncurses
 
          /* check the capture data */
-         printf("    The concentration of the sample is: ");
-         float cnstRlt = 0;
-         scanf("%.4f", &cnstRlt);
+         printf("\n\n    Calculating Constant.\n     Input the gas concentration: ");
+         float cnstRlt = 0, samplePercent, avgRatio;
+         scanf("%f", &samplePercent);
 
-         for(int n = 1; n < 22; n++)
+         for(ratioIdx = 0; ratioIdx < 20; ratioIdx++)
          {
-            cnstRlt += cnstRlts.Rslt[n].ratio;
+            avgRatio += ratioArray[ratioIdx];
+            //printf("%.4f, %.4f, %d\n", ratioArray[ratioIdx], avgRatio, ratioIdx);
          }
-         cnstRlt /= 20;
-
-         printf("\n     The contant is %.4f. \n", cnstRlt);
          
+         if(avgRatio == 0)
+         {
+            printf("the ratio is zero!\n");
+         }
+         else{
+            printf("totalRatio %.4f; numbers %d\n", avgRatio, ratioIdx);
+            avgRatio /= ratioIdx;
+            cnstRlt = samplePercent/avgRatio;
+            printf("\n     Average Ration %.4f; concentration %.4f The contant is %.4f. \n", 
+                  avgRatio, samplePercent, cnstRlt);
+         }
+
+
+         /* save data in a file */
+         // save date and time in file
+
+         // save current constant in file
+         fprintf(fh, "Gas Concentration: %.4f, Constant: %.4f, AvgRatio: %.4f\n", samplePercent, cnstRlt, avgRatio);
+
    #if 0 //debug print
          int dataIdx = pfuncData->datIdx;
          for(int n = 0; n < ADCLNTH; n++)
@@ -3010,6 +3106,8 @@ int main(int argc, char *argv[])
    printf("close the Manufactory Calibration. \n");
 
    gpioTerminate();
+
+   fclose(fh); //close the file
    return 0;
 }
 #endif // end of main()
