@@ -1208,6 +1208,19 @@ typedef struct
    uint16_t numRegs;
 } regInfor;
 
+typedef struct
+{
+   float ratio;
+   float squF1;
+   float squF2;
+}caliRlt;
+
+typedef struct
+{
+   int dataCnt;
+   caliRlt Rslt[30];
+}manuCst;
+
 adc_channel_data adcData;
 regInfor regSetInf;
 
@@ -2242,6 +2255,7 @@ int main(int argc, char *argv[])
    int reps, addr, setData, numRegs;
    adc_channel_data *padcData = &adcData;
    regInfor *pregInf = &regSetInf;
+   manuCst cnstRlts;
 
    status = gpioInitialise();
 
@@ -2630,7 +2644,7 @@ int main(int argc, char *argv[])
          uint32_t curTick, preTick;
          uint32_t preDatTick = 0;
          preTick = curTick = gpioTick(); 
-         while(/*!kbhit()*/pfuncData->isRun == 1 && count < 10)
+         while(/*!kbhit()*/pfuncData->isRun == 1 && count < 30)
          {
             //if((curTick - preTick) >= 100000)
             if(pfuncData->datIdx > 23)
@@ -2664,7 +2678,8 @@ int main(int argc, char *argv[])
                
                /* convert to voltage */
                //int count = 0, countf = 0;
-               
+                
+               #if 0  //TODO - rm following code 
                uint32_t ticksSum = 0;
 
                if(fx1 > 0x7fffff) //adcData.channel0
@@ -2706,7 +2721,8 @@ int main(int argc, char *argv[])
                {
                   v4 = (double)fy2;
                }
-               
+               #endif //TODO end
+
                step = 1200000.0 / 8388607.0;
 
                v1 *= step;
@@ -2721,9 +2737,23 @@ int main(int argc, char *argv[])
                df2 = sqrt(df2);
 
                curTick = gpioTick();
-               
-               printf("    lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df2/df1);
- 
+               int n = cnstRlts.dataCnt;
+               n = (n+1)%22;
+               cnstRlts.dataCnt = n;
+               if(df2 != 0.0)
+               {
+                  n = (n+1)%20;
+                  cnstRlts.dataCnt = n;
+
+                  cnstRlts.Rslt[n].squF1 = df1;
+                  cnstRlts.Rslt[n].squF2 = df2;
+                  cnstRlts.Rslt[n].ratio = df1/df2;
+                  printf("    lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df2/df1);
+               }
+               else
+               {
+                  printf("    dF2 is zero. %.4f, %.4f", df1, df2);
+               }
                printf("    (%d): %u, %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
             
                /* renew the data buffer */
@@ -2758,7 +2788,18 @@ int main(int argc, char *argv[])
          endwin(); //end ncurses
 
          /* check the capture data */
-         printf("\n");
+         printf("    The concentration of the sample is: ");
+         float cnstRlt = 0;
+         scanf("%.4f", &cnstRlt);
+
+         for(int n = 1; n < 22; n++)
+         {
+            cnstRlt += cnstRlts.Rslt[n].ratio;
+         }
+         cnstRlt /= 20;
+
+         printf("\n     The contant is %.4f. \n", cnstRlt);
+         
    #if 0 //debug print
          int dataIdx = pfuncData->datIdx;
          for(int n = 0; n < ADCLNTH; n++)
