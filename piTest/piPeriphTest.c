@@ -2341,7 +2341,7 @@ int main(int argc, char *argv[])
    printf("Hand-Helder Manufactory Calibration\n");
 
    /* disable the Laser and Tec */
-   gpioWrite(TEC_CTRL_EN, 0);
+   gpioWrite(TEC_CTRL_EN, 1);  // disable with high
    gpioWrite(LASER_DETECT_EN, 0);
 
    /* Set DAC_A to lowest value, such as 0.001mA */
@@ -2349,7 +2349,7 @@ int main(int argc, char *argv[])
    gpioDelay(400);
 
    /* enable the Tec-contrller */
-   gpioWrite(TEC_CTRL_EN, 1);
+   gpioWrite(TEC_CTRL_EN, 0); // enable with low
 
    /* Ask Tec TempPoint set */
    char argu3[32] = "get temp point";
@@ -2360,7 +2360,7 @@ int main(int argc, char *argv[])
    //printf("input func-name %s, %s\n\r", mtd415Func, argu3);
    presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
    tecRet = atof(presult);
-   //printf("     Temperature point is %s.\n\n", presult);
+   printf("     Temperature point is %s.\n\n", presult);
    
    printf("\n    Do you want set Temperature Point? (yes or no): ");
    scanf("%s", command);
@@ -2378,13 +2378,13 @@ int main(int argc, char *argv[])
    /* turn on the laser when current temperature is reached to Temp-Point */
    
    int count = 0; float tempRet = 0;
-   while(fabs(tecRet - tempRet) > 0.01 && count < 30)
+   while(fabs(tecRet - tempRet) > 0.05 && count < 60)
    {
       char argu3[32] = "get temperature";
       presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
       tempRet = atof(presult);
       //printf("     Temperature point is %s.\n\n", presult);
-      printf("     delta Temp is %.4f, %.4f, %.4f.\n\n", tecRet, tempRet, fabs(tecRet - tempRet));
+      printf("     delta Temp is (%d) %.4f, %.4f, %.4f.\n\n", count, tecRet, tempRet, fabs(tecRet - tempRet));
       gpioDelay(100);
       count++;
    }
@@ -2407,7 +2407,7 @@ int main(int argc, char *argv[])
          "    setTempPoint,\n"
          "    setDAC,\n"
          "    startWaveforms,\n"
-         "    readADC,\n"
+         "    Calibration,\n"
          "    getCalibConstant,\n"
          "    closeCalib,\n\n"
             "Input Command: "         
@@ -2702,7 +2702,7 @@ int main(int argc, char *argv[])
          printf("Input Command: ");
          scanf("%s", command);
       }
-      else if (!strcmp("readADC", command))
+      else if (!strcmp("Calibration", command)) /*readADC*/
       {
          #if 1
          int count = 0;
@@ -2734,7 +2734,7 @@ int main(int argc, char *argv[])
                //char *presult;
             
                presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
-               printf("\r     set temperature is %s.\r\n", presult);
+               printf("\r     temperature is %s.\r\n", presult);
 
                /* calculate data */
                int32_t fx1 = 0,fy1 = 0, fx2 = 0, fy2 = 0, maxDtick = 0, curTick;
@@ -2827,13 +2827,14 @@ int main(int argc, char *argv[])
                   cnstRlts.Rslt[capIdx].squF1 = df1;
                   cnstRlts.Rslt[capIdx].squF2 = df2;
                   ratioArray[capIdx] = cnstRlts.Rslt[capIdx].ratio = df1/df2;
-                  printf("     lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df1/df2);
+                  //printf("     lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df1/df2);
+                  printf("     result %.4f, %.4f and ratio %.4f\n\r", df1, df2, df1/df2);
                }
                else
                {
                   printf("    dF2 is zero. %.4f, %.4f", df1, df2);
                }
-               printf("    (%d): %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
+               //printf("    (%d): %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
             
                /* renew the data buffer */
                pfuncData->datIdx = 0;
@@ -2845,7 +2846,7 @@ int main(int argc, char *argv[])
                /* end of convert */
                
                /* output data */
-               printf("\r    %d - %d -- %d\n\r", (pfuncData->pRslts + 2)->tick,
+               printf("\r    Time lasting in Samples: %d - %d -- %d\n\r", (pfuncData->pRslts + 2)->tick,
                (pfuncData->pRslts + 21)->tick,
                (pfuncData->pRslts + 21)->tick - (pfuncData->pRslts + 2)->tick);
 
@@ -2868,13 +2869,14 @@ int main(int argc, char *argv[])
 
          /* check the capture data */
          printf("\n\n    Calculating Constant.\n     Input the gas concentration: ");
-         float cnstRlt = 0, samplePercent, avgRatio;
+         float cnstRlt = 0, samplePercent = 0, avgRatio = 0;
+         samplePercent = 0; avgRatio = 0;
          scanf("%f", &samplePercent);
 
          for(ratioIdx = 0; ratioIdx < 20; ratioIdx++)
          {
             avgRatio += ratioArray[ratioIdx];
-            //printf("%.4f, %.4f, %d\n", ratioArray[ratioIdx], avgRatio, ratioIdx);
+            //printf("     debug (%d)) %.4f, %.4f\n", ratioIdx, ratioArray[ratioIdx], avgRatio);
          }
          
          if(avgRatio == 0)
@@ -2882,7 +2884,7 @@ int main(int argc, char *argv[])
             printf("the ratio is zero!\n");
          }
          else{
-            printf("totalRatio %.4f; numbers %d\n", avgRatio, ratioIdx);
+            printf("    totalRatio %.4f; numbers %d\n", avgRatio, ratioIdx);
             avgRatio /= ratioIdx;
             cnstRlt = samplePercent/avgRatio;
             printf("\n     Average Ration %.4f; concentration %.4f The contant is %.4f. \n", 
@@ -3092,7 +3094,7 @@ int main(int argc, char *argv[])
             "    setTempPoint,\n"
             "    setDAC,\n"
             "    startWaveforms,\n"
-            "    readADC,\n"
+            "    Calibration,\n"
             "    getCalibConstant,\n"
             "    closeCalib,\n\n"
             "Input Command: ");
@@ -3103,6 +3105,13 @@ int main(int argc, char *argv[])
    }
 
    //printf("close the pigpio. \n");
+   /* do set the DAC_CH0 to 0.0001, then, turn off the laser */
+   tspi_mcp4822(0, 2, 0.001);
+   gpioDelay(400);
+
+   gpioWrite(TEC_CTRL_EN, 1);  // disable with high
+   gpioWrite(LASER_DETECT_EN, 0);  // disable with low
+
    printf("close the Manufactory Calibration. \n");
 
    gpioTerminate();
