@@ -12,7 +12,7 @@
 
 static const unsigned int CFG_SAMRATE = 2;
 int gpios[]={5,4,6,12,13}; //5-100kHz; 4-1KHz; 6-1KHz90degree; 12-2KHz; 13-2KHz90degree - original
-#if 1 // original settings
+#if 0 // original settings
 gpioPulse_t pulses[]=  // original
 {
    /*
@@ -475,7 +475,7 @@ gpioPulse_t pulses[]= //4 <=> 6
 };
 #endif
 
-#if 0 // switch 6 <=> 13
+#if 1 // switch 6 <=> 13
 gpioPulse_t pulses[]= //6 <=> 13
 {
    {0x1030, 0x0000, 5}, //1
@@ -802,7 +802,7 @@ int twave_gen(int SPIHandle)
 */
 #endif
    //ADvolt = ADS1X15_read_voltage(adc);
-   printf("    wave form start\n");
+   printf("wave form start\n");
 //   ADS1X15_close(adc);
    while (0)
    {
@@ -826,7 +826,7 @@ int twave_cls(int wid)
    ern = gpioWaveTxStop();
    ern = gpioWaveDelete(wid);
 
-   printf("    waveform close.\n");
+   printf("waveform close.\n");
 //   gpioTerminate();
    
    return ern;

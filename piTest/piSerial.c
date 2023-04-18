@@ -15,6 +15,7 @@
  **************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
 // #include <wiringPi.h>
 // #include <wiringSerial.h>
 #include <pigpio.h>
@@ -1393,10 +1394,11 @@ void UART_tempCMain(int isConti)
  * *****************************************************/
 // cresult = call_Python_Stitch(6, "Image_Stitching", "main", "Images", "output.jpeg","--images","--output");
 				
-void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
+const char *tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 {
 	PyObject *pName, *pModule, *pDict, *pFunc, *pValue, *pmyresult, *args, *kwargs;
 	int i;
+	char resultStr[32], *presultStr = &resultStr;
 
     //gpioSetMode(SER_SEL, PI_OUTPUT);
 	gpioWrite(SER_SEL, SLE_TMPC); // select temperature controler
@@ -1406,7 +1408,7 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 	setenv("PYTHONPATH", "/home/pi/mtd415py:/home/pi/mtd415lib/thorlabs-mtd415t:/home/pi/mtd415lib/thorlabs-mtd415t/thorlabs_mtd415t", 1);
 	//printf("PATH: %s\n", getenv("PATH"));
 	//printf("PYTHONPATH: %s\n", getenv("PYTHONPATH"));
-	printf("in the ctrl_py(%d):\n   %s\n   %s\n   %s\n", argc, argv1, argv2, argv3);
+	//printf("in the ctrl_py(%d):\n\r   %s\n\r   %s\n\r   %s\n\r", argc, argv1, argv2, argv3);
 	//return;
 
 	wchar_t *program = Py_DecodeLocale(argv1, NULL);
@@ -1448,15 +1450,22 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 		fprintf(stderr, "Fatal error: cannot get a function\n");
 		exit(1);
 	}
-	args = PyTuple_Pack(1,PyUnicode_DecodeFSDefault(argv3));
+	if(strcmp("null", argv3))
+	{
+		//printf("the argv3 is not null. %s\n\r", argv3);
+		args = PyTuple_Pack(1,PyUnicode_DecodeFSDefault(argv3));
+	}
+		args = PyTuple_Pack(1,PyUnicode_DecodeFSDefault(argv3));
 	// kwargs = PyTuple_Pack(2,PyUnicode_DecodeFSDefault(argv5), PyUnicode_DecodeFSDefault(argv6));
 	// args = Py_BuildValue("ssss", argv5, argv3, argv6, argv4);
 	// kwargs = Py_BuildValue("ss", argv5, argv6);
 
 	if (PyCallable_Check(pFunc))
 	{
-		//pmyresult = PyObject_CallObject(pFunc, args/*NULL*/);
-		pmyresult = PyObject_CallObject(pFunc, NULL);
+		if(strcmp("null", argv3))
+			pmyresult = PyObject_CallObject(pFunc, args/*NULL*/);
+		else
+			pmyresult = PyObject_CallObject(pFunc, NULL);
 		i = 0;
 	}
 	else
@@ -1475,12 +1484,12 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 		PyObject *temp_bytes = PyUnicode_AsEncodedString(pmyresult, "UTF-8", "strict"); // Owned reference
 		if (temp_bytes != NULL)
 		{
-			char *resultStr = PyBytes_AS_STRING(temp_bytes); // Borrowed pointer
-			resultStr = strdup(resultStr);
+			presultStr = PyBytes_AS_STRING(temp_bytes); // Borrowed pointer
+			presultStr = strdup(presultStr);
 			Py_DECREF(temp_bytes);
-			printf(resultStr);
-			/* split string resultStr by "," */
-			//char *p = strtok(resultStr, ", ");
+			//printf("  py return: %s", presultStr);
+			/* split string presultStr by "," */
+			//char *p = strtok(presultStr, ", ");
     		//while(p)
     		//{
         	//	printf("%s \n", p); //print newline
@@ -1495,7 +1504,7 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 		}
 	}
 	else{
-		printf("no string return\n");
+		printf("no string return\n\r");
 	}
 
 	// Clean up
@@ -1505,7 +1514,7 @@ void tempCtrll_py(int argc, char *argv1, char *argv2, char *argv3)
 	// Finish the Python Interpreter
 	Py_Finalize();
 
-	gpioWrite(SER_SEL, SLE_LDIS); // set low (borrow SLE_LDIS)
+	//gpioWrite(SER_SEL, SLE_LDIS); // set low (borrow SLE_LDIS)
 
-	return;
+	return presultStr;
 }

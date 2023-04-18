@@ -4,6 +4,15 @@
         "pigpio.h": "c",
         "waveformnew.h": "c",
         "atomic": "c",
-        "cstdint": "c"
+        "cstdint": "c",
+        "stdio.h": "c",
+        "ncurses.h": "c",
+        "cstdlib": "c",
+        "*.tcc": "c",
+        "chrono": "c",
+        "cmath": "c",
+        "numeric": "c",
+        "ratio": "c",
+        "cinttypes": "c"
     }
 }
