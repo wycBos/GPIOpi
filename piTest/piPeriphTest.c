@@ -33,6 +33,7 @@ sudo ./piPeriphx
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <time.h>
 
 #include "pigpio.h"
 #include "waveFormNew.h"
@@ -944,18 +945,18 @@ void tb() // I2C test
 #define MCP4822_GA1 (1 << 13)  //0-set to 2x gain; 1-set to 1x gain.
 #define MCP4822_ACT (1 << 12)  //0-disable the DAC output; 1-enable the DAC output.
 
-void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP4822
+void tspi_mcp4822(int channel, int command, double value, double prevalue) // TODO - add a argument, prevalue
 {
    /**********************************
     *  channel: 0-DAC_A; 1-DAC_B
     *  command: 0-DIS_ACT, 1-EN_ACT, 2-LDAC
-    *  valu: 0 - 2
+    *  valu2: 0.0 - 2.0
     *************************************/
 
    int h, b, e;
    char txBuf[8];
 
-   printf("    MCP4822 Settings. %d %d %f\n", channel, command, valu);
+   printf("    MCP4822 Settings. %d %d %f\n", channel, command, value);
 
    /* set the DAC_LDAC command 2 DAC_LDAC is high, otherwise it is low*/
    gpioSetMode(DAC_LDAC, PI_OUTPUT); //TODO - move to main()
@@ -988,7 +989,7 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
    *
    */
 
-   h = spiOpen(1, 1250000, 0); // open SPI decice "/dev/spidev0.1" with mode 0 for MCP4822
+   h = spiOpen(1, 4000000, 0); // open SPI decice "/dev/spidev0.1" with mode 0 for MCP4822
    //CHECK(12, 1, h, 4, 100, "spiOpenDAC");
    printf("    DAC - %d\n", h);
 
@@ -1006,14 +1007,24 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
     *******************************************************************
     *
     */
-   unsigned int numSteps, remainVal, valuSet, ctrlData, setValue;
+   unsigned int numSteps, remainVal, valuSet, StepsPre, prevlSet, ctrlData, setValue;
    char byte0, byte1;
 
    /* set MCP4822 value */
-   if (valu < 0 && valu > 2.048)
-      valu = 1.0;
+   if (value < 0 || value > 2.048)
+      value = 1.0;
 
-   valuSet = (unsigned int)(valu / 2.048 * 4096);
+   /* prepare numbers for setting */
+   if(prevalue < 0 || prevalue > 2.048)
+   {
+      StepsPre = 0;
+   }
+   else{
+      prevlSet = (unsigned int)(prevalue / 2.048 * 4096);
+      StepsPre = prevlSet/10;
+   }
+
+   valuSet = (unsigned int)(value / 2.048 * 4096);
    /* setting DAC_A value from 0 to set value with increacing 10 digital number per 20ms */
    numSteps = valuSet/10; remainVal = valuSet%10;
 
@@ -1030,36 +1041,62 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
       ctrlData |= MCP4822_ACT; // set DA activite
 
    /* set DAC value */
-   if(channel == 0) //DAC_A
-   {
-      printf("    MCP4822 CH_A steps. %d\n", numSteps);
-      for(int n = 0; n < numSteps; n++)
+   if(channel == 1) //DAC_B, DC level setting
       {
-         setValue = ctrlData + n*10;
-         //printf("    MCP4822 Data. %d\n", setValue);
+      printf("    MCP4822 CH_B steps. %d\n", abs(numSteps - StepsPre));
 
-         byte0 = setValue & 0xFF;
-         byte1 = (setValue >> 8) & 0xFF;
+      if(numSteps > StepsPre)
+      {
+         for(int n = StepsPre; n < numSteps + 1; n++)
+         {
+            setValue = ctrlData + n*10;
+            //printf("    MCP4822 Data. %d\n", setValue);
 
-         txBuf[1] = byte0;
-         txBuf[0] = byte1;
-         // sprintf(txBuf, "\x01\x80");
-         //printf("MCP4822 Data. %x %x %x\n", setValue, txBuf[1], txBuf[0]);
+            byte0 = setValue & 0xFF;
+            byte1 = (setValue >> 8) & 0xFF;
 
-         /* write data to SPI */
-         b = spiWrite(h, txBuf, 2);
-         //CHECK(12, 2, b, 2, 0, "spiWrie");
+            txBuf[1] = byte0;
+            txBuf[0] = byte1;
+            //printf("MCP4822 Data. %x %x %x\n", setValue, txBuf[1], txBuf[0]);
 
-         /* latch data to DAC */
-         gpioWrite(DAC_LDAC, 0);
-         gpioDelay(400);
-         gpioWrite(DAC_LDAC, 1);
-         gpioDelay(20000); // delay 20ms
+            /* write data to SPI */
+            b = spiWrite(h, txBuf, 2);
+
+            /* latch data to DAC */
+            gpioWrite(DAC_LDAC, 0);
+            gpioDelay(400);
+            gpioWrite(DAC_LDAC, 1);
+            gpioDelay(20000); // delay 20ms
+         }
+      }else if(numSteps < StepsPre)
+      {
+         for(int n = 0; n < (StepsPre - numSteps + 1); n++)
+         {
+            setValue = ctrlData + (StepsPre - n)*10;
+            //printf("    MCP4822 Data. %d\n", setValue);
+
+            byte0 = setValue & 0xFF;
+            byte1 = (setValue >> 8) & 0xFF;
+
+            txBuf[1] = byte0;
+            txBuf[0] = byte1;
+            //printf("MCP4822 Data. %x %x %x\n", setValue, txBuf[1], txBuf[0]);
+
+            /* write data to SPI */
+            b = spiWrite(h, txBuf, 2);
+
+            /* latch data to DAC */
+            gpioWrite(DAC_LDAC, 0);
+            gpioDelay(400);
+            gpioWrite(DAC_LDAC, 1);
+            gpioDelay(20000); // delay 20ms
+         }
       }
    }
 //   else{ //DAC_B
 //
 //   }
+
    setValue = ctrlData + valuSet;
    printf("    MCP4822 Data. 0x%x\n", setValue);
 
@@ -1068,30 +1105,15 @@ void tspi_mcp4822(int channel, int command, double valu) // SPI channel test MCP
 
    txBuf[1] = byte0;
    txBuf[0] = byte1;
-   // sprintf(txBuf, "\x01\x80");
-   //printf("MCP4822 Data. %x %x %x\n", setValue, txBuf[1], txBuf[0]);
+   //printf("MCP4822 Data. %x %x %x\n", setValue, txbuf[1], txbuf[0]);
 
    /* write data to SPI */
    b = spiWrite(h, txBuf, 2);
-   //CHECK(12, 2, b, 2, 0, "spiWrie");
 
    /* latch data to DAC */
    gpioWrite(DAC_LDAC, 0);
    gpioDelay(400);
    gpioWrite(DAC_LDAC, 1);
-
-   /*
-      for (x=0; x<5; x++)
-      {
-         b = spiXfer(h, txBuf, rxBuf, 3);
-         CHECK(12, 2, b, 3, 0, "spiXfer");
-         if (b == 3)
-         {
-            time_sleep(1.0);
-            printf("%d ", ((rxBuf[1]&0x0F)*256)|rxBuf[2]);
-         }
-      }
-   */
 
    e = spiClose(h);
    //CHECK(12, 3, e, 0, 0, "spiClose");
@@ -1796,8 +1818,10 @@ void tspi_ads131m04(char *command, uint16_t address, unsigned int value)
 uint16_t tspi_ads131m04_rd(int SPIhandler, regInfor *getInf);
 
 /* TODO - move to head file */
-#define SAMPRAT (1000000/210)
-#define ADCLNTH 32
+#define NOTEMPDBG 1
+#define SAMPRAT (1000000/200)
+#define ADCLNTH (256*4) //32
+#define FILTER_LEN 20
 
 typedef struct ADCRsults_t{
    uint32_t tick;
@@ -1805,22 +1829,43 @@ typedef struct ADCRsults_t{
    double results1;
    double results2;
    double results3;
+   int dbg0;
+   int dbg1;
+   int dbg2;
+   int dbg3;
 }adcRslts;
 
 typedef struct UserData_t{
+   bool dReady;
    int handle;
    int isRun;
    int datIdx;
+   int avgData[4];
    uint32_t preTick;
    adcRslts *pRslts;
 }userData;
 
+typedef struct FILTER_t
+{
+   int updatePtr;
+   int dataCnt;
+   int sum0;
+   int sum1;
+   int sum2;
+   int sum3;
+   int chan0[FILTER_LEN];
+   int chan1[FILTER_LEN];
+   int chan2[FILTER_LEN];
+   int chan3[FILTER_LEN];
+}avgData;
+
+avgData avgFlt;
 adcRslts adcRltData[ADCLNTH];
 userData adcCapFuncData;
 
 void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData) //a callback function for capture adc data.
 {
-   int reps, h, isRn, idx;
+   int reps, h, isRn, idx, dataPtr, dataIn, dataOut, numData;
    uint32_t lpreTick;
    regInfor *pregInf = &regSetInf;
    
@@ -1828,73 +1873,36 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
    h = padcCapFuncData->handle;
    isRn = padcCapFuncData->isRun;
    idx = (padcCapFuncData->datIdx);
+   if(idx < FILTER_LEN)
+   {
+      if(idx <= 0) //less than 0 is not reasonable but in case to correct it...
+      {
+         numData = 1;
+         avgFlt.updatePtr = 0;
+         for(int n = 0; n < FILTER_LEN; n++)
+         {
+            avgFlt.sum0 = avgFlt.chan0[n] = 0;
+            avgFlt.sum1 = avgFlt.chan1[n] = 0;
+            avgFlt.sum2 = avgFlt.chan2[n] = 0;
+            avgFlt.sum3 = avgFlt.chan3[n] = 0;
+         }
+      }else
+         numData = idx + 1;
+   }else
+      numData = FILTER_LEN;
 
-   if((level == 0) && (isRn == 1) && (tick > (lpreTick + SAMPRAT)))
+   if((level == 0) && (isRn == 1)/* && (tick > (lpreTick + SAMPRAT))*/)
    {
          pregInf->regAddr = 1;
          pregInf->numRegs = 0; //numRegs;
          reps = tspi_ads131m04_rd(h, pregInf);
-         /*
-         double step = 1200000.0 / 8388607.0;
-         double v1, v2, v3, v4;
 
-         if(adcData.channel0 > 0x7fffff)
-         {
-            v1 = (double)(~(adcData.channel0 | 0xff000000)+1);
-            v1 = -v1;
-         }
-         else
-         {
-            v1 = (double)adcData.channel0;
-         }
-
-         if(adcData.channel1 > 0x7fffff)
-         {
-            v2 = (double)(~(adcData.channel1 | 0xff000000)+1);
-            v2 = -v2;
-         }
-         else
-         {
-            v2 = (double)adcData.channel1;
-         }
-         
-         if(adcData.channel2 > 0x7fffff)
-         {
-            v3 = (double)(~(adcData.channel2 | 0xff000000)+1);
-            v3 = -v3;
-         }
-         else
-         {
-            v3 = (double)adcData.channel2;
-         }
-         
-         if(adcData.channel3 > 0x7fffff)
-         {
-            v4 = (double)(~(adcData.channel3 | 0xff000000)+1);
-            v4 = -v4;
-         }
-         else
-         {
-            v4 = (double)adcData.channel3;
-         }
-         */
          /* updata the adcCapFuncData */
-         idx = (idx + 1)%ADCLNTH;
-         padcCapFuncData->datIdx = idx;
          padcCapFuncData->preTick = tick;
          (padcCapFuncData->pRslts + idx)->tick = tick;
 
+         dataPtr = avgFlt.updatePtr;
 
-         //v1 *= step;
-         //v2 *= step;
-         //v3 *= step;
-         //v4 *= step;
-         
-         //(padcCapFuncData->pRslts + idx)->results0 = v1;
-         //(padcCapFuncData->pRslts + idx)->results1 = v2;
-         //(padcCapFuncData->pRslts + idx)->results2 = v3;
-         //(padcCapFuncData->pRslts + idx)->results3 = v4;
-         
          //TODO - convert to int type
          int dataIn = adcData.channel0;
          if(dataIn > 0x7fffff)
@@ -1902,6 +1910,14 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
             dataIn = (adcData.channel0 | 0xff000000);
          }
          (padcCapFuncData->pRslts + idx)->results0 = (float)dataIn;
+         dataOut = avgFlt.chan0[dataPtr];
+         avgFlt.chan0[dataPtr] = dataIn;
+         dataIn += avgFlt.sum0;
+         dataIn -= dataOut;
+         avgFlt.sum0 = dataIn;
+         padcCapFuncData->avgData[0] = dataIn/numData;
+
+         //padcCapFuncData->avgData[0] = dataIn;//for debug
          
          dataIn = adcData.channel1;
          if(dataIn > 0x7fffff)
@@ -1909,6 +1925,14 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
             dataIn = (adcData.channel1 | 0xff000000);
          }
          (padcCapFuncData->pRslts + idx)->results1 = (float)dataIn;
+         dataOut = avgFlt.chan1[dataPtr];
+         avgFlt.chan1[dataPtr] = dataIn;
+         dataIn += avgFlt.sum1;
+         dataIn -= dataOut;
+         avgFlt.sum1 = dataIn;
+         padcCapFuncData->avgData[1] = dataIn/numData;
+
+         //padcCapFuncData->avgData[1] = dataIn;//for debug
          
          dataIn = adcData.channel2;
          if(dataIn > 0x7fffff)
@@ -1916,6 +1940,14 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
             dataIn = (adcData.channel2 | 0xff000000);
          }
          (padcCapFuncData->pRslts + idx)->results2 = (float)dataIn;
+         dataOut = avgFlt.chan2[dataPtr];
+         avgFlt.chan2[dataPtr] = dataIn;
+         dataIn += avgFlt.sum2;
+         dataIn -= dataOut;
+         avgFlt.sum2 = dataIn;
+         padcCapFuncData->avgData[2] = dataIn/numData;
+
+         //padcCapFuncData->avgData[2] = dataIn;//for debug
          
          dataIn = adcData.channel3;
          if(dataIn > 0x7fffff)
@@ -1923,9 +1955,20 @@ void adcCaptureFun(int gpio, int level, uint32_t tick, userData* padcCapFuncData
             dataIn = (adcData.channel3 | 0xff000000);
          }
          (padcCapFuncData->pRslts + idx)->results3 = (float)dataIn;
+         dataOut = avgFlt.chan3[dataPtr];
+         avgFlt.chan3[dataPtr] = dataIn;
+         dataIn += avgFlt.sum3;
+         dataIn -= dataOut;
+         avgFlt.sum3 = dataIn;
+         padcCapFuncData->avgData[3] = dataIn/numData;
 
-         
-         //printf("Data(%d, %u): 0x%x, %.02f, %.02f, %.2f, %.2f\n", gpio, tick-lpreTick, adcData.response, v1, v2, v3, v4);
+         //padcCapFuncData->avgData[3] = dataIn;//for debug
+
+         avgFlt.updatePtr = (dataPtr + 1)%FILTER_LEN;
+         idx = (idx + 1)%ADCLNTH;
+         padcCapFuncData->datIdx = idx;
+
+         //printf("    Data(%d, %u): 0x%x, %d\r\n", gpio, dataPtr, tick-lpreTick, avgFlt.updatePtr);
                
    }
    
@@ -1980,8 +2023,8 @@ int tspi_ads131m04_start(regInfor *pregInf, adc_channel_data *padcData) // start
    *
    */
 
-   // h = spiOpen(0, 1250000, 1); // open SPI decice "/dev/spidev0.0" with mode 1 for ads131m04
-   h = spiOpen(0, 2500000, 1); // open SPI decice "/dev/spidev0.0" with mode 1 for ads131m04
+   h = spiOpen(0, 4000000, 1); // open SPI decice "/dev/spidev0.0" with mode 1 for ads131m04
+   //h = spiOpen(0, 2500000, 1); // open SPI decice "/dev/spidev0.0" with mode 1 for ads131m04
    //CHECK(12, 1, h, 4, 100, "spiOpenADC");
    //printf("ADC - %d", h);
 
@@ -2240,6 +2283,7 @@ int main(int argc, char *argv[])
 char *mtd415 = "mtd415Set";
 char *mtd415setFunc = "tecCmdset";
 char *mtd415getFunc = "tecCmdget";
+char *mtd415SafeChk = "tecSafeChk";
 
 /**************************************************
  * file data: write/read data from a file.
@@ -2280,13 +2324,31 @@ void	readDate(char *date)
 }
 */
 
+typedef struct CapTimeDbg_t
+{
+   int numData;
+   uint32_t u32tickCurDbg;
+   uint32_t u32tickFirtDbg;
+   uint32_t u32tickLastDbg;
+} timeDbg;
+
+typedef struct CapDataDbg_t
+{
+   int inumData[32];
+   int count[32];
+   float fRatio[32];
+   float f1[32];
+   float f2[32];
+   timeDbg *pticksDbg;
+} capDbg;
+
 int main(int argc, char *argv[])
 {
    int h, i, t, c, status;
    double value = 0;
    int channel; // command;
 
-   float tecRet = 0;
+   float tecRet = 0, preDACval0 = 0, preDACval1 = 0;
    char *presult;
 
    //uint16_t reps;
@@ -2295,6 +2357,26 @@ int main(int argc, char *argv[])
    adc_channel_data *padcData = &adcData;
    regInfor *pregInf = &regSetInf;
    manuCst cnstRlts;
+
+   //for capture debug
+   timeDbg tickData[32];
+   capDbg capAdcDbg;
+   capAdcDbg.pticksDbg = &tickData[0];
+
+   char dateString[9];
+   char timeString[9];
+   time_t current_time;
+
+   struct tm *time_info;
+
+   time(&current_time);
+   time_info = localtime(&current_time);
+
+   strftime(dateString, sizeof(dateString), "%D", time_info);
+   //strftime(timeString, sizeof(timeString), "%I:%M %p", time_info);   
+
+   printf("Date: %s.\n", dateString);
+   printf("Year:%d - Month:%d - Date:%d. \n\n", time_info->tm_year, time_info->tm_mon, time_info->tm_yday);
 
    // file
    FILE *fh;
@@ -2344,31 +2426,54 @@ int main(int argc, char *argv[])
    gpioWrite(TEC_CTRL_EN, 1);  // disable with high
    gpioWrite(LASER_DETECT_EN, 0);
 
-   /* Set DAC_A to lowest value, such as 0.001mA */
-   tspi_mcp4822(0, 2, 0.001);
+   /* Set DAC_A to lowest value for modulation, such as 0.0001mA */
+   tspi_mcp4822(0, 2, 0.0001, -1.0);
+   gpioDelay(400);
+   /* Set DAC_B to lowest value for DC gain, such as 0.0001mA */
+   tspi_mcp4822(1, 2, 0.0001, -1.0);
    gpioDelay(400);
 
    /* enable the Tec-contrller */
    gpioWrite(TEC_CTRL_EN, 0); // enable with low
 
+   /* MTD415 Safety check */
+   {
+      char argu3[32] = "null";
+      #if NOTEMPDBG //debug
+      presult = tempCtrll_py(3, mtd415, mtd415SafeChk, &argu3);
+      tecRet = atof(presult);
+      #else
+      presult = "notemp-point for debug.";//tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+      //tecRet = atof(presult);
+      #endif
+      printf("     SafetyMask-bits is %s.\n\n", presult);
+   }
+
    /* Ask Tec TempPoint set */
-   char argu3[32] = "get temp point";
-   //char *presult;
-         //char argu2[32] = "tecSetPoint", argu3[32] = "null";
-         //printf("    Input call name and argument: ");
-         //scanf("%s %s", &argu2, &argu3);
-   //printf("input func-name %s, %s\n\r", mtd415Func, argu3);
-   presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
-   tecRet = atof(presult);
-   printf("     Temperature point is %s.\n\n", presult);
+   {
+      char argu3[32] = "get temp point";
+      #if NOTEMPDBG //debug
+      presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+      tecRet = atof(presult);
+      #else
+      presult = "notemp-point for debug.";//tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+      //tecRet = atof(presult);
+      #endif
+      printf("     Temperature point is %s.\n\n", presult);
+   }
    
    printf("\n    Do you want set Temperature Point? (yes or no): ");
    scanf("%s", command);
    if(!strcmp("yes", command))
    {
       char argu3[32] = "set temp point";
+      #if NOTEMPDBG //debug
       presult = tempCtrll_py(3, mtd415, mtd415setFunc, &argu3);
       tecRet = atof(presult);
+      #else 
+      presult =  "notemp-point for debug.";//tempCtrll_py(3, mtd415, mtd415setFunc, &argu3);
+      //tecRet = atof(presult);
+      #endif
       printf("     Temperature point is %s.\n\n", presult);
 
    }else{
@@ -2381,8 +2486,13 @@ int main(int argc, char *argv[])
    while(fabs(tecRet - tempRet) > 0.05 && count < 60)
    {
       char argu3[32] = "get temperature";
+      #if NOTEMPDBG //debug
       presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
       tempRet = atof(presult);
+      #else 
+      presult =  "no tempture for debug.";//tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+      tempRet = 0;//atof(presult);
+      #endif
       //printf("     Temperature point is %s.\n\n", presult);
       printf("     delta Temp is (%d) %.4f, %.4f, %.4f.\n\n", count, tecRet, tempRet, fabs(tecRet - tempRet));
       gpioDelay(100);
@@ -2400,7 +2510,8 @@ int main(int argc, char *argv[])
 
    pfuncData->pRslts = &adcRltData[0]; pfuncData->datIdx = 0;
    pfuncData->handle = h; pfuncData->isRun = 0;
-   gpioSetAlertFuncEx(ADC_DRDY, NULL, pfuncData);
+   //gpioSetAlertFuncEx(ADC_DRDY, NULL, pfuncData);
+   gpioSetISRFuncEx(ADC_DRDY, 1, 10, NULL, pfuncData);
 
    //printf("pigpio started.\n    Input Command: ");
    printf("  Please input the following command:\n"
@@ -2408,7 +2519,8 @@ int main(int argc, char *argv[])
          "    setDAC,\n"
          "    startWaveforms,\n"
          "    Calibration,\n"
-         "    getCalibConstant,\n"
+         /*"    getCalibConstant,\n"*/
+         "    ReadADC612,\n"
          "    closeCalib,\n\n"
             "Input Command: "         
          );
@@ -2454,7 +2566,7 @@ int main(int argc, char *argv[])
          printf("    reps: 0x%0x \n    Input Command: ", reps);
          scanf("%s", command);
       }
-      else if (!strcmp("SetChxIntTestClose", command))
+      else if (!strcmp("SetChxIntTest", command))
       {
          printf("    Input Setting: ");
          scanf("%x", &setData);
@@ -2519,6 +2631,29 @@ int main(int argc, char *argv[])
          printf("\nInput Command: ");
          scanf("%s", command);
       }
+      else if (!strcmp("ReadADC612", command))
+      {
+         float value = 0;
+         printf("    Input ChanID (0, 1, or 2): ");
+         scanf("%d", &addr);
+         
+         getMAX11612vals(1, addr, &value);
+         if(addr == 2 && value > 0) // convert to temperature
+         {
+            double Tc, Tk, par1, par2;
+            par1 = 3950.0; par2 = 298.15;
+            par2 = exp(-par1/par2)*10000; //const
+            
+            Tk = par1/log((7000*1.8/value - 7000)/par2);
+            Tc = Tk - 273.15;
+            printf("\n --- Temperature: %.3f %.3f", Tk, Tc);
+         }
+         printf(" --- max612 %.3f", value);
+         
+         printf("\nInput Command: ");
+         scanf("%s", command);
+      }
+
       else if (!strcmp("setDAC", command))
       {
          float value = 0;
@@ -2526,18 +2661,29 @@ int main(int argc, char *argv[])
          scanf("%d", &addr);
          if(addr == 0)
          {
-            printf("    Input Value (0 to 2.04 V): ");
+            printf("    Input Value (0 to 2.04V): ");
             scanf("%f", &value);            
          }
          else if(addr == 1){
-            printf("    Input Value (0 to 600 mV): ");            
+            printf("    Input Value (0 to 2.04V): ");            
             scanf("%f", &value);
-            value /=1000;
          }else{
             printf("    ChanID is not correct!\n");
          }
          // execute code;
-         tspi_mcp4822(addr, 2, value);
+         if(addr == 0)
+         {
+            tspi_mcp4822(addr, 2, value, preDACval0);
+            preDACval0 = value;
+         }else if(addr == 1)
+         {
+            tspi_mcp4822(addr, 2, value, preDACval1);
+            preDACval1 = value;
+         }
+         else{
+            printf(" --- set wrong channel!");
+         }
+
          printf("\nInput Command: ");
          scanf("%s", command);
       }
@@ -2558,10 +2704,9 @@ int main(int argc, char *argv[])
          char *parguGps1 = "nmeaParser";
          char arguGps2[32] = "parsMsg", arguGps3[32] = "The GPS parser calling test!";
          printf("    Input call name and argument: ");
-         scanf("%s %s", &arguGps2, &arguGps3);
+         scanf("%s %s", &arguGps2[0], &arguGps3[0]);
 
-
-         tempCtrll_py(3, parguGps1, &arguGps2, &arguGps3);
+         tempCtrll_py(3, parguGps1, &arguGps2[0], &arguGps3[0]);
          printf("Input Command: ");
          scanf("%s", command);
       }
@@ -2579,7 +2724,12 @@ int main(int argc, char *argv[])
          //printf("    Input call name and argument: ");
          //scanf("%s %s", &argu2, &argu3);
 
+         #if NOTEMPDBG //debug
          presult = tempCtrll_py(3, mtd415, mtd415setFunc, &argu3);
+         tecRet = atof(presult);
+         #else 
+         presult =  "no temp-point for debug.";//tempCtrll_py(3, mtd415, mtd415setFunc, &argu3);
+         #endif
          printf("     set point is %s.\n\n", presult);
 
          printf("Input Command: ");
@@ -2607,7 +2757,12 @@ int main(int argc, char *argv[])
          //}
          //char *presult;
 
+         #if NOTEMPDBG //debug
          presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+         tecRet = atof(presult);
+         #else 
+         presult =  "no temp-point for debug.";//tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+         #endif
          printf("     get temperature is %s.\n\n", presult);
          
          printf("Input Command: ");
@@ -2635,7 +2790,12 @@ int main(int argc, char *argv[])
          //}
          //char *presult;
 
+         #if NOTEMPDBG //debug
          presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+         tecRet = atof(presult);
+         #else 
+         presult =  "no temp-point for debug.";//tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+         #endif
          printf("     get temp point is %s.\n\n", presult);
          
          printf("Input Command: ");
@@ -2704,59 +2864,58 @@ int main(int argc, char *argv[])
       }
       else if (!strcmp("Calibration", command)) /*readADC*/
       {
-         #if 1
+         #if 1 // get ratio for 15sec
          int count = 0;
          /* initialize the ncurses lib */
          initscr();
          /* use alert function */
          pfuncData->datIdx = 0;
+         pfuncData->dReady = false;
          pfuncData->isRun = 1;
          
-         gpioSetAlertFuncEx(ADC_DRDY, adcCaptureFun, pfuncData);
+         //gpioSetAlertFuncEx(ADC_DRDY, adcCaptureFun, pfuncData);
+         gpioSetISRFuncEx(ADC_DRDY, 1, 10, adcCaptureFun, pfuncData);
 
          /* while loop for checking temp and adc each 100 ms */
          uint32_t curTick, preTick;
          uint32_t preDatTick = 0;
          int ratioIdx = 0, capIdx = 0;
-         float ratioArray[20];
+         float avgRatio, ratioArray[32*8];
          preTick = curTick = gpioTick(); 
-         while(/*!kbhit()*/pfuncData->isRun == 1 && count < 24)
+         //while(/*!kbhit()*/pfuncData->isRun == 1 && count < 24)
+         while(count < 100) //
          {
-            //if((curTick - preTick) >= 100000)
+            if((curTick - preTick) >= 100000)
             //cnstRlts.dataCnt;
-            if(pfuncData->datIdx > 23)
+            //if(pfuncData->datIdx > 23)
             {
                pfuncData->isRun = 0;
-               /* get temperature */              
-               //char *pargu1 = "mtd415Set";
-               //char argu2[32] = "tecCmd"; 
-               char argu3[32] = "get temperature";
-               //char *presult;
-            
-               presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
-               printf("\r     temperature is %s.\r\n", presult);
-
-               /* calculate data */
+               /* get ADC data */
                int32_t fx1 = 0,fy1 = 0, fx2 = 0, fy2 = 0, maxDtick = 0, curTick;
                double df1, df2, v1, v2, v3, v4, step;
                
-               for(int n = 2; n < 22; n++)
-               {
-                  fx1 += (pfuncData->pRslts + n)->results0;
-                  fy1 += (pfuncData->pRslts + n)->results1;
-                  fx2 += (pfuncData->pRslts + n)->results2;
-                  fy2 += (pfuncData->pRslts + n)->results3;
-                  if(n > 3)
-                     curTick = (pfuncData->pRslts + n)->tick - (pfuncData->pRslts + (n - 1))->tick;
-                  maxDtick = (maxDtick > curTick) ? maxDtick:curTick;
-               }
-
-               fx1 /= 20; fy1 /= 20; fx2 /= 20; fy2 /= 20;
+               fx1 = pfuncData->avgData[0]; fy1 = pfuncData->avgData[1];
+               fx2 = pfuncData->avgData[2]; fy2 = pfuncData->avgData[3];
+               int indx = pfuncData->datIdx;             
+               pfuncData->datIdx = 0;
+               pfuncData->isRun = 1;
+               //printf("\r     input data(%d) is %d %d %d %d.\r\n", indx, fx1, fy1, fx2, fy2);
                
-               /* convert to voltage */
-               //int count = 0, countf = 0;
+               /* get temperature */              
+               char argu3[32] = "get temperature";
+               //char *presult;
+            
+               #if NOTEMPDBG //debug
+               presult = tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+               tecRet = atof(presult);
+               #else 
+               presult =  "no tempture for debug.";//tempCtrll_py(3, mtd415, mtd415getFunc, &argu3);
+               #endif
+               printf("\r     temperature is %s.\r\n", presult);
+
+               /* calculte the ratio */
                 
-               #if 1  //TODO - rm following code 
+               #if 0  //TODO - rm following code 
                uint32_t ticksSum = 0;
 
                if(fx1 > 0x7fffff) //adcData.channel0
@@ -2801,6 +2960,10 @@ int main(int argc, char *argv[])
                #endif //TODO end
 
                step = 1200000.0 / 8388607.0;
+               v1 = (double)fx1;//*step;
+               v2 = (double)fy1;//*step;
+               v3 = (double)fx2;//*step;
+               v4 = (double)fy2;//*step;
 
                v1 *= step;
                v2 *= step;
@@ -2813,44 +2976,42 @@ int main(int argc, char *argv[])
                df1 = sqrt(df1);
                df2 = sqrt(df2);
 
-               curTick = gpioTick();
+               //curTick = gpioTick();
 
-               capIdx = cnstRlts.dataCnt = count;
+               //capIdx = cnstRlts.dataCnt = count;
                
-               capIdx = capIdx%20;
-               cnstRlts.dataCnt = capIdx;
-               if(df2 != 0.0)
+               //capIdx = capIdx%20;
+               //cnstRlts.dataCnt = capIdx;
+               if(df1 != 0.0)
                {
                   //n = (n+1)%20;
                   //cnstRlts.dataCnt = n;
 
-                  cnstRlts.Rslt[capIdx].squF1 = df1;
-                  cnstRlts.Rslt[capIdx].squF2 = df2;
-                  ratioArray[capIdx] = cnstRlts.Rslt[capIdx].ratio = df1/df2;
+                  //cnstRlts.Rslt[capIdx].squF1 = df1;
+                  //cnstRlts.Rslt[capIdx].squF2 = df2;
+                  //ratioArray[capIdx] = cnstRlts.Rslt[capIdx].ratio = df2/df1;
+                  ratioArray[count] = avgRatio = df2/df1;
                   //printf("     lasting %d max-dalt %d; result %.4f, %.4f and ratio %.4f\n\r", (curTick - preTick), maxDtick, df1, df2, df1/df2);
-                  printf("     result %.4f, %.4f and ratio %.4f\n\r", df1, df2, df1/df2);
+                  printf("     result0 %.4f %.4f %.4f %.4f \n\r", v1, v2, v3, v4);
+                  printf("     result1(%d) %.4f %.4f and ratio %.4f\n\r", indx, df1, df2, df2/df1);
                }
                else
                {
-                  printf("    dF2 is zero. %.4f, %.4f", df1, df2);
+                  printf("    dF1 is zero. %.4f, %.4f", df1, df2);
                }
                //printf("    (%d): %.02f, %.02f, %.2f, %.2f\n\r", count, v1, v2, v3, v4);
             
                /* renew the data buffer */
-               pfuncData->datIdx = 0;
-               pfuncData->isRun = 1;
                curTick = preTick = gpioTick();
                count++;
                //}
 
                /* end of convert */
                
-               /* output data */
-               printf("\r    Time lasting in Samples: %d - %d -- %d\n\r", (pfuncData->pRslts + 2)->tick,
-               (pfuncData->pRslts + 21)->tick,
-               (pfuncData->pRslts + 21)->tick - (pfuncData->pRslts + 2)->tick);
-
-               //curTick = gpioTick();
+            }
+            else{
+               gpioDelay(500);
+               curTick = gpioTick();
             }
             //if(kbhit())
             //{
@@ -2864,30 +3025,32 @@ int main(int argc, char *argv[])
          //scanf("%s", command);
   
          pfuncData->isRun = 0;
+         pfuncData->datIdx = 0;
+         gpioSetISRFuncEx(ADC_DRDY, 1, 10, NULL, pfuncData);
          
          endwin(); //end ncurses
 
-         /* check the capture data */
-         printf("\n\n    Calculating Constant.\n     Input the gas concentration: ");
-         float cnstRlt = 0, samplePercent = 0, avgRatio = 0;
-         samplePercent = 0; avgRatio = 0;
+         /* get the constant data */
+         avgRatio = 0;
+         for(int i = 0; i < count; i++){
+            avgRatio += ratioArray[i];
+         }
+         avgRatio = (count == 0)?count:avgRatio/count;
+         
+         printf("\n\nCalculating Constant.\n     Input the gas concentration: ");
+         float cnstRlt = 0, samplePercent = 0;//, avgRatio = 0;
+         samplePercent = 0;
          scanf("%f", &samplePercent);
 
-         for(ratioIdx = 0; ratioIdx < 20; ratioIdx++)
-         {
-            avgRatio += ratioArray[ratioIdx];
-            //printf("     debug (%d)) %.4f, %.4f\n", ratioIdx, ratioArray[ratioIdx], avgRatio);
-         }
-         
          if(avgRatio == 0)
          {
             printf("the ratio is zero!\n");
          }
          else{
-            printf("    totalRatio %.4f; numbers %d\n", avgRatio, ratioIdx);
-            avgRatio /= ratioIdx;
+            //printf("    totalRatio %.4f; numbers %d\n", avgRatio, ratioIdx);
+            //avgRatio /= ratioIdx;
             cnstRlt = samplePercent/avgRatio;
-            printf("\n     Average Ration %.4f; concentration %.4f The contant is %.4f. \n", 
+            printf("\n ---- Average Ration %.4f; concentration %.4f The contant is %.4f. \n", 
                   avgRatio, samplePercent, cnstRlt);
          }
 
@@ -2896,6 +3059,7 @@ int main(int argc, char *argv[])
          // save date and time in file
 
          // save current constant in file
+         //fprintf(fh, "DAC_Ch0 Settings: %.4f, DAC_Ch1 Settings: %.4f, ", preDACval0, preDACval1);
          fprintf(fh, "Gas Concentration: %.4f, Constant: %.4f, AvgRatio: %.4f\n", samplePercent, cnstRlt, avgRatio);
 
    #if 0 //debug print
@@ -2916,7 +3080,7 @@ int main(int argc, char *argv[])
 
          /* end of using alert function */
    #endif //end of debug print
-         #endif
+         #endif // end of get ratio for 15sec
       
          #if 0 //read data number of data
          printf("    Input No. to capture: ");
@@ -3095,7 +3259,8 @@ int main(int argc, char *argv[])
             "    setDAC,\n"
             "    startWaveforms,\n"
             "    Calibration,\n"
-            "    getCalibConstant,\n"
+            /*"    getCalibConstant,\n"*/
+            "    ReadADC612,\n"
             "    closeCalib,\n\n"
             "Input Command: ");
 #endif
@@ -3106,7 +3271,10 @@ int main(int argc, char *argv[])
 
    //printf("close the pigpio. \n");
    /* do set the DAC_CH0 to 0.0001, then, turn off the laser */
-   tspi_mcp4822(0, 2, 0.001);
+   //tspi_mcp4822(0, 2, 0.001);
+   tspi_mcp4822(1, 2, 0.001, -1.0);
+   gpioDelay(400);
+   tspi_mcp4822(0, 2, 0.001, -1.0);
    gpioDelay(400);
 
    gpioWrite(TEC_CTRL_EN, 1);  // disable with high
